@@ -132,7 +132,7 @@ III. Close the confluence:
 
 	+----+----+----+
 	|    |    |    |
-	|    | A6 | A3 |
+	|    | A3 | A6 |
 	|    |    |    |
 	+----+----+----+
 	|    |    |    |
@@ -144,11 +144,11 @@ III. Close the confluence:
 	|    |    |    |
 	+----+----+----+
 
-IV. Make the 4-Way (A1 in the center matches D1 and B1 "symbol 1" and A2 and A6 "color A")
+IV. Make the 4-Way (A1 in the center matches D1 and B1 "symbol 1" and A2 and A3 "color A")
 
 	+----+----+----+
 	|    |    |    |
-	|    | A6 | A3 |
+	|    | A3 | A6 |
 	|    |    |    |
 	+----+----+----+
 	|    |    |    |
