@@ -2,17 +2,36 @@ CoordMode, Mouse, Window
 
 Class Stone
 {
-	__New(shape, color)
+	__New(shape, color := 0)
 	{
-		this.shape := shape
-		this.color := color
+		if (color != 0)
+		{
+			this.shape := shape
+			this.color := color
+		}
+		else
+		{
+			this.shape := shape // 10
+			this.color := Mod(shape, 10)
+		}
+	}
+	
+	ToInt()
+	{
+		return ((this.shape * 10) + this.color)
 	}
 }
 
 Class Pouch
 {
-	__New()
+	__New(str := "")
 	{
+		if (str != "")
+		{
+			this.Clear()
+			Loop, Parse, str, `,
+				this.Stones[A_Index] := new Stone(A_LoopField)
+		}
 	}
 
 	Clear()
@@ -79,12 +98,40 @@ Class Pouch
 	{
 		return this.Stones.Length()
 	}
+	
+	ToStr()
+	{
+		str := ""
+		Loop, % this.Stones.Length()
+			str .= this.Stones[A_Index].ToInt() . ","
+		str := RTrim(str, ",")
+		return str
+	}
 }
 
 Class Board
 {
-	__New()
+	__New(str := "")
 	{
+		if (str != "")
+		{
+			this.Clear()
+			Loop, Parse, str, `;
+			{
+				pair := A_LoopField
+				Loop, Parse, pair, `,
+				{
+					if (A_Index = 1)
+					{
+						pos := A_LoopField - 1
+						r := (pos // 12) + 1
+						c := Mod(pos, 12) + 1
+					}
+					else
+						this.PutStone(c, r, new Stone(A_LoopField))
+				}
+			}
+		}
 	}
 	
 	Clear()
@@ -179,6 +226,27 @@ Class Board
 		}
 		return ""
 	}
+	
+	ToStr()
+	{
+		str := ""
+		Loop, 8 ;rows
+		{
+			r := A_Index
+			Loop, 12 ;cols
+			{
+				c := A_Index
+				st := this.brd[r + 1, c + 1]
+				if (st != "")
+				{
+					pos := (r - 1) * 12 + c
+					str .= pos . "," . st.ToInt() . ";"
+				}				
+			}
+		}
+		str := RTrim(str, ";")
+		return str
+	}
 }
 
 Class Game
@@ -192,44 +260,73 @@ Class Game
 		this.SetBoard()
 		mh := ObjBindMethod(this, "MenuHandler")
 		this.menu := "GameMenu"
-		Menu, % this.menu, Add, New Game, %mh%
+		Menu, submenu, Add, New, %mh%
+		Menu, submenu, Add, Load, %mh%
+		Menu, submenu, Add, Save, %mh%
+		Menu, % this.menu, Add, Game, :submenu
 		Menu, % this.menu, Add, High Scores, %mh%
+		Menu, % this.menu, Add
 		Menu, % this.menu, Add, Exit, %mh%
 	}
 	
 	Init()
 	{
-		this.pouch.Clear()
-		this.board.Clear()
-		tIni := this.pouch.Init()
-		this.board.SetInitialStones(tIni)
-		this.pouch.Shuffle()
-		this.HiScores := this.GetHiScores()
+		if (this.loading)
+		{
+			this.pouch := this.load_pouch
+			this.score := this.load_score
+			this.board := this.load_board
+			msgbox,, Ishido - Load Game, Game loaded.
+		}
+		else
+		{
+			this.pouch.Clear()
+			this.board.Clear()
+			tIni := this.pouch.Init()
+			this.board.SetInitialStones(tIni)
+			this.pouch.Shuffle()
+			this.score := Object()
+			this.score.Push(0, 0, 0) ; first position: FW, second position: points, third position: stones left
+		}
+		this.GetHiScores()
 		this.stop_game := false
-		this.score := Object()
-		this.score.Push(0, 0, 0) ; first position: FW, second position: points, third position: stones left
+		this.load_board := ""
+		this.load_score := ""
+		this.load_pouch := ""
+		this.loading := false
 	}
 	
 	MenuHandler()
 	{
 		if (A_ThisMenuItem = "Exit")
 			ExitApp
-		if (A_ThisMenuItem = "New Game")
+		if (A_ThisMenuItem = "New")
 		{
-			this.stop_game := true
-			this.move_done := true
+			msgbox, 4, Ishido - New Game, Are you sure you want to end current game?
+			IfMsgBox, Yes
+			{
+				this.stop_game := true
+				this.move_done := true
+			}
+			return
 		}
 		if (A_ThisMenuItem = "High Scores")
 		{
-			if (this.HiScores != "")
-			{
-				str := "* Higher four-ways achieved: " . this.HiScores[1][1] . "`n    on " . this.HiScores[1][4] . "(with " . this.HiScores[1][2] . " points and " . this.HiScores[1][3] " stones left)`n`n"
-				str .= "* Higher score achieved: " . this.HiScores[2][2] . "`n    on " . this.HiScores[2][4] . "(with " . this.HiScores[2][1] . " four-ways and " . this.HiScores[2][3] " stones left)`n`n"
-				str .= "* Less stones left in pouch: " . this.HiScores[3][3] . "`n    on " . this.HiScores[3][4] . "(with " . this.HiScores[3][1] . " four-ways and " . this.HiScores[3][2] . " points)"
-			}
-			else
-				str := "No high score achieved yet"
-			msgbox,, Ishido - High Scores, %str%
+			this.ShowHiScores()
+			return
+		}
+		if (A_ThisMenuItem = "Load")
+		{
+			this.LoadGame()
+			this.loading := true
+			this.move_done := true
+			this.stop_game := true
+			return
+		}
+		if (A_ThisMenuItem = "Save")
+		{
+			this.SaveGame()
+			return
 		}
 	}
 	
@@ -237,16 +334,14 @@ Class Game
 	{
 		IfExist, % this.file_hi
 		{
-			hi := Object()
+			this.HiScores := Object()
 			Loop, Read, % this.file_hi
 			{
 				i := A_Index
 				Loop, Parse, A_LoopReadLine, `t
-					hi[i,A_Index] := A_LoopField
+					this.HiScores[i,A_Index] := A_LoopField
 			}
 		}
-		
-		return hi
 	}
 	
 	CreateHiScoresFile()
@@ -265,32 +360,102 @@ Class Game
 	
 	UpdateHiScores()
 	{
+		some_change := false
 		FormatTime, hisc_date
 		if (this.HiScores != "")
 		{
 			Loop, 3
 			{
-				better := (A_Index = 3) ? (this.score[A_Index] < this.HiScores[A_Index,A_Index]) : (this.score[A_Index] > this.HiScores[A_Index,A_Index])
+				better := (A_Index = 3) ? (this.score[A_Index] <= this.HiScores[A_Index,A_Index]) : (this.score[A_Index] >= this.HiScores[A_Index,A_Index])
 				if (better)
 				{
 					hi := this.score
 					hi.Push(hisc_date)
 					this.HiScores[A_Index] := hi
+					some_change := true
 				}
 			}
 		}
 		else
 		{
+			some_change := true
 			Loop, 3
 			{
-				i := 1 ;A_Index
+				i := A_Index
 				Loop, 3
-					this.HiScores[i,A_Index] := this.score[A_Index]
+				{
+					v := A_Index
+					this.HiScores[i,v] := this.score[v]
+				}
 				this.HiScores[i,4] := hisc_date
 			}
 		}
-		this.ShowHiScore()
+		if (some_change)
+			this.ShowHiScores("You made a High Score!`n`n")
 		this.CreateHiScoresFile()
+	}
+	
+	ShowHiScores(str := "")
+	{
+		if (this.HiScores != "")
+		{
+			str .= "* Higher four-ways achieved: " . this.HiScores[1][1] . "`n    on " . this.HiScores[1][4] . "(with " . this.HiScores[1][2] . " points and " . this.HiScores[1][3] " stones left)`n`n"
+			str .= "* Higher score achieved: " . this.HiScores[2][2] . "`n    on " . this.HiScores[2][4] . "(with " . this.HiScores[2][1] . " four-ways and " . this.HiScores[2][3] " stones left)`n`n"
+			str .= "* Less stones left in pouch: " . this.HiScores[3][3] . "`n    on " . this.HiScores[3][4] . "(with " . this.HiScores[3][1] . " four-ways and " . this.HiScores[3][2] . " points)"
+		}
+		else
+			str := "No high score achieved yet"
+		msgbox,, Ishido - High Scores, %str%
+	}
+	
+	LoadGame()
+	{
+		FileSelectFile, LoadFile, 3, %A_ScriptDir%, Ishido - Load Game, (*.isg)
+		if (LoadFile != "")
+		{
+			msgbox, 4, Ishido - Load Game, Are you sure you want to load this game?`nCurrent game will end.
+			IfMsgBox, Yes
+			{
+				FileGetSize, size, %LoadFile%
+				if (size > 0)
+				{
+					Loop, 3
+					{
+						FileReadLine, line, %LoadFile%, A_Index
+						if (A_Index = 1) ;score
+						{
+							this.load_score := Object()
+							Loop, Parse, line, `,
+								this.load_score.InsertAt(this.load_score.Length() + 1, A_LoopField)
+						}
+						if (A_Index = 2) ;board
+							this.load_board := New Board(line)
+						if (A_Index = 3) ;pouch
+							this.load_pouch := New Pouch(line)
+					}
+				}
+				else
+					msgbox,, Ishido - Load Game, This game cannot be loaded, file is empty.
+			}
+		}
+	}
+	
+	SaveGame()
+	{
+		FileSelectFile, SavedFile, S16, %A_ScriptDir%\save.isg, Ishido - Save Game, (*.isg)
+		if (SavedFile != "")
+		{
+			FileDelete, %SavedFile%
+			FileAppend, % this.score[1] . "," . this.score[2] . "," . this.score[3] . "`n", %SavedFile%
+			FileAppend, % this.board.ToStr() . "`n", %SavedFile%
+			FileAppend, % this.pouch.ToStr() . "," . this.touchstone.ToInt(), %SavedFile%
+			
+			FileGetSize, size, %SavedFile%
+			if (size > 0)
+				msgbox,, Ishido - Save Game, Game Saved.
+			else	
+				msgbox,, Ishido - Save Game, There has been some error saving the game...
+		}
 	}
 	
 	ClickPic(wParam, lParam, msg, hwnd)
@@ -306,7 +471,7 @@ Class Game
 			{
 				c := Floor((X - 20) / 40) + 1
 				r := Floor((Y - 20) / 60) + 1
-				this.DrawStone(this.stone, c, r)
+				this.DrawStone(this.touchstone, c, r)
 			}
 		}
 		if (wParam = 2)
@@ -461,8 +626,8 @@ Class Game
 					GuiControl,, Pic%r%%c%
 			}
 		}
-		GuiControl,, FW, 0
-		GuiControl,, Points, 0		
+		GuiControl,, FW, % this.score[1]
+		GuiControl,, Points, % this.score[2]		
 	}
 	
 	Play()
@@ -480,10 +645,10 @@ Class Game
 					final := true
 				else
 				{
-					this.stone := this.pouch.PickStone()
-					this.DrawStone(this.stone)
+					this.touchstone := this.pouch.PickStone()
+					this.DrawStone(this.touchstone)
 					this.UpdatePouch()
-					this.PossibleMove := this.board.ThereAreValidPlaces(this.stone)
+					this.PossibleMove := this.board.ThereAreValidPlaces(this.touchstone)
 					if (this.PossibleMove = "")
 					{
 						msgbox,, Ishido, There are no more moves.
